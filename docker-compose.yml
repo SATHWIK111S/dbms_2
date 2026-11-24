@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Primary ACID Relational Data Store
+  postgres:
+    image: postgres:16-alpine
+    container_name: disaster_relief_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: disaster_relief
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./database/triggers.sql:/docker-entrypoint-initdb.d/02_triggers.sql
+      - ./database/views.sql:/docker-entrypoint-initdb.d/03_views.sql
+      - ./database/seeds.sql:/docker-entrypoint-initdb.d/04_seeds.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d disaster_relief"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin 4 Web GUI Management Interface
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: disaster_relief_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@disasterrelief.org
+      PGADMIN_DEFAULT_PASSWORD: adminpassword
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Express REST API Backend
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: disaster_relief_api
+    restart: unless-stopped
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      USE_EMBEDDED_POSTGRES: "false"
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: disaster_relief
+      PGUSER: postgres
+      PGPASSWORD: postgrespassword
+      PG_POOL_MAX: 20
+      PG_POOL_IDLE_TIMEOUT: 30000
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # React + Vite Frontend Client
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: disaster_relief_client
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
